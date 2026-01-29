@@ -205,7 +205,7 @@ impl ClipEmbedder {
     ) -> anyhow::Result<Tokenizer> {
         let tokenizer = match tokenizer {
             None => {
-                let api = hf_hub::api::sync::Api::new()?;
+                let api = hf_hub::api::sync::ApiBuilder::from_env().build()?;
                 let api = match revision {
                     Some(rev) => api.repo(hf_hub::Repo::with_revision(
                         model_id,
@@ -236,17 +236,22 @@ impl ClipEmbedder {
         ]);
 
         let mut tokens = vec![];
+        let max_len = self.max_len;
 
         for seq in vec_seq {
             let encoding = tokenizer.encode(*seq, true).map_err(E::msg)?;
-            tokens.push(encoding.get_ids().to_vec());
+            let chunks = encoding
+                .get_ids()
+                .to_vec()
+                .chunks(max_len)
+                .map(|chunk| chunk.to_vec())
+                .collect::<Vec<_>>();
+            tokens.extend(chunks);
         }
-
-        let max_len = self.max_len;
 
         // Pad the sequences to have the same length
         for token_vec in tokens.iter_mut() {
-            let len_diff = max_len - token_vec.len();
+            let len_diff = max_len.saturating_sub(token_vec.len());
             if len_diff > 0 {
                 token_vec.extend(vec![pad_id; len_diff]);
             }
